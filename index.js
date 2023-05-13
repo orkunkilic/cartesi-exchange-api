@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fastify_1 = __importDefault(require("fastify"));
 const fastifySqlite = require('fastify-sqlite');
 const utils_1 = require("./utils");
+const cors_1 = __importDefault(require("@fastify/cors"));
 const GET_REPORTS = `
 query reports($after: String!) {
     reports(after: $after) {
@@ -101,18 +102,21 @@ const pollGraph = (db) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 const server = (0, fastify_1.default)();
+server.register(cors_1.default, {
+    origin: '*'
+});
 server.register(fastifySqlite, {
     promiseApi: true,
     dbFile: 'exchange.db'
 });
 server.get('/asks', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
     if (!request.query.address) {
-        const asks = server.sqlite.all('select * from asks');
+        const asks = yield server.sqlite.all('select * from asks');
         console.log('asks: ', asks);
         return asks;
     }
     else {
-        const asks = server.sqlite.all('select * from asks where owner = ?', [request.query.address]);
+        const asks = yield server.sqlite.all('select * from asks where owner = ?', [request.query.address]);
         console.log('asks: ', asks);
         return asks;
     }
@@ -120,23 +124,23 @@ server.get('/asks', (request, reply) => __awaiter(void 0, void 0, void 0, functi
 server.get('/bids', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     if (!request.query.address) {
-        const bids = server.sqlite.all('select * from bids');
+        const bids = yield server.sqlite.all('select * from bids');
         console.log('bids: ', bids);
         return bids;
     }
     else {
-        const bids = server.sqlite.all('select * from bids where owner = ?', [(_a = request.query) === null || _a === void 0 ? void 0 : _a.address]);
+        const bids = yield server.sqlite.all('select * from bids where owner = ?', [(_a = request.query) === null || _a === void 0 ? void 0 : _a.address]);
         console.log('bids: ', bids);
         return bids;
     }
 }));
 server.get('/balance', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
     var _b;
-    const balance = server.sqlite.get('select * from balances where address = ?', [(_b = request.query) === null || _b === void 0 ? void 0 : _b.address]);
+    const balance = (yield server.sqlite.get('select * from balances where address = ?', [(_b = request.query) === null || _b === void 0 ? void 0 : _b.address])) || {};
     console.log('balance: ', balance);
     return balance;
 }));
-server.listen({ port: 8080 }, (err, address) => __awaiter(void 0, void 0, void 0, function* () {
+server.listen({ port: 8080, host: "0.0.0.0" }, (err, address) => __awaiter(void 0, void 0, void 0, function* () {
     if (err) {
         console.error(err);
         process.exit(1);

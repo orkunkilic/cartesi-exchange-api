@@ -1,6 +1,7 @@
 import fastify from 'fastify'
 const fastifySqlite = require('fastify-sqlite')
 import { hex2str } from './utils'
+import cors from '@fastify/cors'
 
 const GET_REPORTS = `
 query reports($after: String!) {
@@ -96,6 +97,10 @@ const pollGraph = async (db: any) => {
 
 const server = fastify()
 
+server.register(cors, {
+    origin: '*'
+})
+
 server.register(fastifySqlite, {
     promiseApi: true,
     dbFile: 'exchange.db'
@@ -103,11 +108,11 @@ server.register(fastifySqlite, {
 
 server.get('/asks', async (request: any, reply) => {
     if (!request.query.address) {
-        const asks = server.sqlite.all('select * from asks')
+        const asks = await server.sqlite.all('select * from asks')
         console.log('asks: ', asks)
         return asks
     } else {
-        const asks = server.sqlite.all('select * from asks where owner = ?', [request.query.address])
+        const asks = await server.sqlite.all('select * from asks where owner = ?', [request.query.address])
         console.log('asks: ', asks)
         return asks
     }
@@ -115,23 +120,23 @@ server.get('/asks', async (request: any, reply) => {
 
 server.get('/bids', async (request:any, reply) => {
     if (!request.query.address) {
-        const bids = server.sqlite.all('select * from bids')
+        const bids = await server.sqlite.all('select * from bids')
         console.log('bids: ', bids)
         return bids
     } else {
-        const bids = server.sqlite.all('select * from bids where owner = ?', [request.query?.address])
+        const bids = await server.sqlite.all('select * from bids where owner = ?', [request.query?.address])
         console.log('bids: ', bids)
         return bids
     }
 })
 
 server.get('/balance', async (request: any, reply) => {
-    const balance = server.sqlite.get('select * from balances where address = ?', [request.query?.address])
+    const balance = await server.sqlite.get('select * from balances where address = ?', [request.query?.address]) || {}
     console.log('balance: ', balance)
     return balance
 })
 
-server.listen({ port: 8080 }, async (err, address) => {
+server.listen({ port: 8080, host: "0.0.0.0" }, async (err, address) => {
     if (err) {
         console.error(err)
         process.exit(1)
@@ -156,6 +161,6 @@ server.listen({ port: 8080 }, async (err, address) => {
 
     setInterval(() => {
         pollGraph(server.sqlite)
-    }, 5000)
+    }, 1000)
 
 })
