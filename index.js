@@ -78,15 +78,18 @@ const pollGraph = (db) => __awaiter(void 0, void 0, void 0, function* () {
         const insertPromises = payloads.map((event) => {
             switch (event.type) {
                 case "ADD_ORDER": {
+                    console.log("add order", event);
                     const table = event.order_type === "bid" ? "bids" : "asks";
-                    return db.run(`INSERT INTO ${table} (id, owner, price, quantity) VALUES (?, ?, ?, ?)`, [event.order_id, event.order_owner, event.order_price, event.order_quantity]);
+                    return db.run(`INSERT INTO ${table} (id, owner, price, quantity) VALUES (?, ?, ?, ?)`, [event.order_id, event.order_owner.toLowerCase(), event.order_price, event.order_quantity]);
                 }
                 case "REMOVE_ORDER": {
+                    console.log("remove order", event);
                     const table = event.order_type === "bid" ? "bids" : "asks";
                     return db.run(`DELETE FROM ${table} WHERE id=?`, [event.order_id]);
                 }
                 case "BALANCE_UPDATED":
-                    return db.run(`INSERT INTO balances (address, token, total, available) VALUES (?, ?, ?, ?) ON CONFLICT (address) DO UPDATE SET (token, total, available) = (excluded.token, excluded.total, excluded.available)`, [event.user, event.token, event.total, event.available]);
+                    // TODO: make it upsert
+                    return db.run('UPDATE balances SET total=?, available=? WHERE address=? AND token=?', [event.total, event.available, event.user, event.token]);
                 default:
                     break;
             }
@@ -94,7 +97,12 @@ const pollGraph = (db) => __awaiter(void 0, void 0, void 0, function* () {
         console.log('Setting last fetched index: ', outputs[outputs.length - 1].id);
         insertPromises.push(db.run('UPDATE cursor SET last=?', [outputs[outputs.length - 1].id]));
         console.log('Promises to run');
-        yield Promise.all(insertPromises);
+        try {
+            yield Promise.all(insertPromises);
+        }
+        catch (e) {
+            console.log("Error while inserting", e);
+        }
         console.log('Promises runned');
     }
     catch (err) {
@@ -110,34 +118,30 @@ server.register(fastifySqlite, {
     dbFile: 'exchange.db'
 });
 server.get('/asks', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     if (!request.query.address) {
-        const asks = yield server.sqlite.all('select * from asks');
-        console.log('asks: ', asks);
+        const asks = yield server.sqlite.all('select * from asks order by price asc ');
         return asks;
     }
     else {
-        const asks = yield server.sqlite.all('select * from asks where owner = ?', [request.query.address]);
-        console.log('asks: ', asks);
+        const asks = yield server.sqlite.all('select * from asks order by price asc where owner = ?', [(_a = request.query) === null || _a === void 0 ? void 0 : _a.address.toLowerCase()]);
         return asks;
     }
 }));
 server.get('/bids', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _b;
     if (!request.query.address) {
-        const bids = yield server.sqlite.all('select * from bids');
-        console.log('bids: ', bids);
+        const bids = yield server.sqlite.all('select * from bids order by price desc');
         return bids;
     }
     else {
-        const bids = yield server.sqlite.all('select * from bids where owner = ?', [(_a = request.query) === null || _a === void 0 ? void 0 : _a.address]);
-        console.log('bids: ', bids);
+        const bids = yield server.sqlite.all('select * from bids order by price desc where owner = ?', [(_b = request.query) === null || _b === void 0 ? void 0 : _b.address.toLowerCase()]);
         return bids;
     }
 }));
 server.get('/balance', (request, reply) => __awaiter(void 0, void 0, void 0, function* () {
-    var _b;
-    const balance = (yield server.sqlite.get('select * from balances where address = ?', [(_b = request.query) === null || _b === void 0 ? void 0 : _b.address])) || {};
-    console.log('balance: ', balance);
+    var _c;
+    const balance = (yield server.sqlite.all('select * from balances where address = ?', [(_c = request.query) === null || _c === void 0 ? void 0 : _c.address.toLowerCase()])) || {};
     return balance;
 }));
 server.listen({ port: 8080, host: "0.0.0.0" }, (err, address) => __awaiter(void 0, void 0, void 0, function* () {
@@ -149,10 +153,13 @@ server.listen({ port: 8080, host: "0.0.0.0" }, (err, address) => __awaiter(void 
     try {
         yield server.sqlite.run('SELECT * FROM balances');
     }
-    catch (_c) {
+    catch (_d) {
         // create tables
         console.log('started creating tables');
-        yield server.sqlite.run('CREATE TABLE balances (address varchar(255) NOT NULL, token varchar(255) NOT NULL, total int NOT NULL, available int NOT NULL, PRIMARY KEY (address))');
+        yield server.sqlite.run('CREATE TABLE balances (address varchar(255) NOT NULL, token varchar(255) NOT NULL, total int, available int, PRIMARY KEY (address, token))');
+        // TODO: fix this demo only thing
+        yield server.sqlite.run('INSERT INTO balances (address, token) VALUES (?, ?)', ["0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "ask"]);
+        yield server.sqlite.run('INSERT INTO balances (address, token) VALUES (?, ?)', ["0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", "bid"]);
         yield server.sqlite.run('CREATE TABLE asks (id int NOT NULL, owner varchar(255) NOT NULL, price int NOT NULL, quantity int NOT NULL, PRIMARY KEY (id))');
         yield server.sqlite.run('CREATE TABLE bids (id int NOT NULL, owner varchar(255) NOT NULL, price int NOT NULL, quantity int NOT NULL, PRIMARY KEY (id))');
         yield server.sqlite.run('CREATE TABLE cursor (last int)');
@@ -161,5 +168,5 @@ server.listen({ port: 8080, host: "0.0.0.0" }, (err, address) => __awaiter(void 
     }
     setInterval(() => {
         pollGraph(server.sqlite);
-    }, 5000);
+    }, 3000);
 }));
